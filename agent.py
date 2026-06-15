@@ -1,80 +1,114 @@
+# Memory and Local Plugin Imports
 import asyncio
 
 from dotenv import load_dotenv
-
 from livekit import agents
-from livekit.agents import AgentSession, Agent, RoomInputOptions
-from livekit.plugins import (
-    noise_cancellation,
+
+# FIXED: Correct class name mapping for room input properties
+from livekit.agents import Agent, AgentSession, room_io
+from livekit.plugins import google, noise_cancellation
+
+from memory import initialize_memory
+from prompts import (
+    FRIDAY_BEHAVIOR,
+    FRIDAY_SYSTEM_PROMPT,
+    USER_UNDERSTANDING_LAYER,
+    WELCOME_MESSAGE,
 )
-from memory._init_ import initialize_memory
-from livekit.plugins import google
-from prompts import FRIDAY_SYSTEM_PROMPT,WELCOME_MESSAGE,FRIDAY_BEHAVIOR,USER_UNDERSTANDING_LAYER
-from tools import (
+from tools.home_assistant_tools import (
+    get_device_state,
+    toggle_device,
+    turn_off_device,
+    turn_on_device,
+)
+from tools.tools import (
     get_weather,
     search_web,
-    send_email
+    send_email,
+    structural_automation_worker,
 )
+from tools.tools_apps import (
+    close_application,
+    is_app_running,
+    list_running_apps,
+    open_application,
+    refresh_app_index,
+)
+from tools.tools_browser import google_search, open_website, read_website
+from tools.tools_files import (
+    create_file,
+    delete_file,
+    find_file,
+    list_files,
+    move_file,
+    read_file,
+)
+from tools.tools_memory import recall_memory
 
-from tools_memory import recall_memory
 load_dotenv()
 
 
-class Assistant(Agent):
+class FridayAgent(Agent):
     def __init__(self) -> None:
+        # Run your ChromaDB vector memory layer setup
         initialize_memory()
-        super().__init__(
-            instructions=f"{FRIDAY_SYSTEM_PROMPT}\n"
-            f"{USER_UNDERSTANDING_LAYER}\n"
-            f"{WELCOME_MESSAGE}\n"
-            f"{FRIDAY_BEHAVIOR}",
-            llm=google.beta.realtime.RealtimeModel(
-            voice="Aoede",
-            temperature=0.8,
 
-            generation_config={
-                "context_window_compression": True,
-            }
-        ),
+        super().__init__(
+            # Main Voice/Vision Core Instructions
+            instructions=f"{FRIDAY_SYSTEM_PROMPT}\n\n{USER_UNDERSTANDING_LAYER}\n\n{FRIDAY_BEHAVIOR}",
+            # FIXED: Flattened options and removed the crashing generation_config block
+            llm=google.beta.realtime.RealtimeModel(voice="Aoede", temperature=0.7),
+            # Complete Integrated Automated Tool Registry
             tools=[
                 get_weather,
                 search_web,
                 send_email,
-                recall_memory
+                recall_memory,
+                structural_automation_worker,
+                list_files,
+                find_file,
+                create_file,
+                read_file,
+                move_file,
+                delete_file,
+                refresh_app_index,
+                list_running_apps,
+                open_application,
+                close_application,
+                is_app_running,
+                open_website,
+                google_search,
+                read_website,
+                turn_on_device,
+                turn_off_device,
+                toggle_device,
+                get_device_state,
             ],
-
         )
-        
 
 
 async def entrypoint(ctx: agents.JobContext):
-    session = AgentSession(
-        
-    )
+    session = AgentSession()
 
+    # FIXED: Re-mapped to standard production RoomOptions signatures
     await session.start(
         room=ctx.room,
-        agent=Assistant(),
-        room_input_options=RoomInputOptions(
-            # LiveKit Cloud enhanced noise cancellation
-            # - If self-hosting, omit this parameter
-            # - For telephony applications, use `BVCTelephony` for best results
-            video_enabled=True,
-            noise_cancellation=noise_cancellation.BVC(),
+        agent=FridayAgent(),
+        room_options=room_io.RoomOptions(
+            video_input=room_io.VideoInputOptions(),  # Turns on web camera tracking channel
+            audio_input=room_io.AudioInputOptions(
+                noise_cancellation=noise_cancellation.BVC()  # Switches to BVC premium filter
+            ),
         ),
     )
 
     await ctx.connect()
-    await asyncio.sleep(0.5) 
-    
-     # Wait for the session to initialize
-    await session.generate_reply(
-        instructions=f"{FRIDAY_SYSTEM_PROMPT}\n"
-            f"{USER_UNDERSTANDING_LAYER}\n"
-            f"{WELCOME_MESSAGE}\n"
-            f"{FRIDAY_BEHAVIOR}",
-    )
+    await asyncio.sleep(0.5)
+
+    # FIXED: Replaced massive prompt concatenation with just the clean phonetic greeting string
+    await session.generate_reply(instructions=WELCOME_MESSAGE)
 
 
 if __name__ == "__main__":
+    # FIXED: Correct runner syntax for standalone entrypoint function loops
     agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))

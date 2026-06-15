@@ -1,14 +1,14 @@
-
 import logging
-from livekit.agents import function_tool, RunContext
-import requests
-from livekit.plugins import groq
-from langchain_community.tools import DuckDuckGoSearchRun
 import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
+
+import requests
+from langchain_community.tools import DuckDuckGoSearchRun
+from livekit.agents import RunContext, function_tool
+from livekit.plugins import groq
 
 
 @function_tool()
@@ -53,7 +53,10 @@ async def get_weather(
     Get the current weather for a given city.
     """
     try:
-        response = requests.get(f"https://wttr.in/{city}?format=3")
+        response = requests.get(
+            f"https://wttr.in/{city}?format=3",
+            timeout=10,
+        )
         if response.status_code == 200:
             logging.info(f"Weather for {city}: {response.text.strip()}")
             return response.text.strip()
@@ -104,6 +107,10 @@ async def send_email(
         smtp_server = "smtp.gmail.com"
         smtp_port = 587
 
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
         # Get credentials from environment variables
         gmail_user = os.getenv("GMAIL_USER")
         gmail_password = os.getenv(
