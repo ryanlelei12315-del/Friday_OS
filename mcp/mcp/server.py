@@ -2,8 +2,11 @@ import subprocess
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
+from mcp.tools.search import fast_local_search
+from mcp.tools.system_ui import click_ui_element
 
 mcp = FastMCP("filesystem")
+mcp = FastMCP("FridayOS_Core")
 
 
 @mcp.tool()
@@ -64,3 +67,19 @@ def execute_powershell(command: str) -> str:
 
     except Exception as e:
         return str(e)
+
+
+@mcp.tool()
+def search_desktop_files(query: str) -> str:
+    """Instantly scan the entire hard drive for matching files or folders."""
+    return fast_local_search(query)
+
+
+@mcp.tool()
+def interact_with_application(window_title: str, button_name: str) -> str:
+    """Click buttons or interactive elements inside an active window."""
+    return click_ui_element(window_title, button_name)
+
+
+if __name__ == "__main__":
+    mcp.run()

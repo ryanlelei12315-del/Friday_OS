@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from livekit import agents
 
 # FIXED: Correct class name mapping for room input properties
-from livekit.agents import Agent, AgentSession, room_io
+from livekit.agents import Agent, AgentSession, JobContext, room_io
 from livekit.plugins import google, noise_cancellation
 
 from memory import initialize_memory
@@ -87,7 +87,27 @@ class FridayAgent(Agent):
         )
 
 
-async def entrypoint(ctx: agents.JobContext):
+async def entrypoint(ctx: JobContext, context_tracker=None):
+    print("[Agent] Initializing LiveKit room connection...")
+
+    if context_tracker:
+        print(
+            f"Current App Window Title: {context_tracker.current_context['active_window_title']}"
+        )
+
+    # 2. This is how your agent dynamically grabs the active screen context on demand:
+    def get_live_system_prompt():
+        if context_tracker:
+            ctx_data = context_tracker.current_context
+            return (
+                "You are FridayOS, an ambient operating system intelligence.\n"
+                f"User's Active Window: {ctx_data['active_window_title']}\n"
+                f"Process Name: {ctx_data['active_process_name']}\n"
+                f"Clipboard Content: '{ctx_data['clipboard_text']}'\n"
+                "Use this data implicitly to assist the user."
+            )
+        return "You are FridayOS, a helpful voice assistant."
+
     session = AgentSession()
 
     # FIXED: Re-mapped to standard production RoomOptions signatures
