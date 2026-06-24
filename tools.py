@@ -19,11 +19,9 @@ async def structural_automation_worker(context: RunContext, user_request: str) -
     logging.info(f"Handoff to Groq automation module for task: {user_request}")
 
     groq_automation_engine = groq.LLM(
-        model="llama-3.3-70b-versitile",
+        model="llama-3.3-70b-versatile",
         temperature=0.5,
-        api_key=os.environ.get(
-            "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"
-        ),
+        api_key=os.environ.get("GROQ_API_KEY"),
     )
     system_prompt = (
         "You are Friday's background data processing worker. Analyze the request and "
