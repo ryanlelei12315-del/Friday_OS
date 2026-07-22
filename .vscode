@@ -1,0 +1,10 @@
+{
+  "python.analysis.extraPaths": [
+    "./",
+    "./Friday_OS/Backend"
+  ],
+  "python.autoComplete.extraPaths": [
+    "./",
+    "./Friday_OS/Backend"
+  ]
+}
