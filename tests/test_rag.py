@@ -25,8 +25,9 @@ class TestRAGChunking:
 
     def test_code_chunking_preserves_lines(self):
         """Code chunking should keep lines intact."""
+        from pathlib import Path
         code = "line1\nline2\nline3\nline4\nline5\nline6\n"
-        chunks = self.rag.chunk_text(code, chunk_size=600, overlap=100)
+        chunks = self.rag.chunk_text(code, file_path=Path("test.py"), chunk_size=600, overlap=100)
         assert len(chunks) >= 1
         for chunk in chunks:
             assert "\n" in chunk  # lines preserved
