@@ -14,6 +14,7 @@ from core.runtime_state import TaskState, PlanStep, StepStatus
 from core.tool_contract import ToolResult, ToolStatus, ToolRiskLevel, FridayToolContract
 from core.tool_registry import ToolRegistry, FridayBaseTool
 from core.policy_engine import PolicyEngine, PolicyDecision
+from core.state_model import StateSnapshot, SystemState, ApplicationState
 from core.orchestrator import FridayOrchestrator
 
 # Core tools imports
@@ -276,7 +277,25 @@ async def test_end_to_end_vscode_launch():
 
     # Grant application launching permissions to policy engine
     policy = PolicyEngine(granted_permissions=["application.write"])
-    orchestrator = FridayOrchestrator(tool_registry=registry, policy_engine=policy)
+
+    # Mock observer to return before/after snapshots for the vscode launch
+    mock_obs = MagicMock()
+    before_snap = StateSnapshot(
+        timestamp=100.0,
+        system_state=SystemState(),
+        applications=[ApplicationState(logical_name="code", running=False)],
+    )
+    after_snap = StateSnapshot(
+        timestamp=101.0,
+        system_state=SystemState(),
+        applications=[ApplicationState(logical_name="code", running=True, pid=1234)],
+    )
+    mock_obs.get_snapshot.side_effect = [before_snap, after_snap]
+    mock_obs.compress_context.return_value = {}
+
+    orchestrator = FridayOrchestrator(
+        tool_registry=registry, policy_engine=policy, observer=mock_obs
+    )
 
     # 2. Setup TaskState
     task = TaskState(

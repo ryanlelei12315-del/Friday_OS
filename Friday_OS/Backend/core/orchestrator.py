@@ -7,6 +7,8 @@ from core.runtime_state import TaskState, PlanStep, StepStatus
 from core.tool_contract import ToolResult, ToolStatus, ToolRiskLevel
 from core.tool_registry import ToolRegistry, FridayBaseTool
 from core.policy_engine import PolicyEngine, PolicyDecision
+from core.observation import WindowsObserver
+from core.verification_engine import VerificationEngine, VerificationStatus
 
 logger = logging.getLogger("FridayOrchestrator")
 
@@ -17,18 +19,25 @@ class FridayOrchestrator:
         tool_registry: Union[ToolRegistry, Dict[str, Callable]],
         policy_engine: Optional[PolicyEngine] = None,
         verification_registry: Optional[Dict[str, Callable]] = None,
+        observer: Optional[WindowsObserver] = None,
+        verification_engine: Optional[VerificationEngine] = None,
     ):
         """
         Friday Core Orchestrator implementing a stateful control loop:
         OBSERVE -> PLAN -> EXECUTE -> VERIFY -> REFLECT -> COMPLETE
 
-        Supports Phase 1 Dict registries and Phase 2 typed ToolRegistry + PolicyEngine.
+        Supports Phase 1 Dict registries and Phase 2/3 typed ToolRegistry, PolicyEngine,
+        WindowsObserver, and VerificationEngine.
         """
         self.registry = tool_registry
         self.policy = policy_engine or PolicyEngine()
         self.verifiers = verification_registry or {}
 
-        # Is this running under strict Phase 2 ToolRegistry mode?
+        # Phase 3 Observation & Verification engines
+        self.observer = observer or WindowsObserver()
+        self.verification_engine = verification_engine or VerificationEngine()
+
+        # Is this running under strict Phase 2/3 typed mode?
         self.strict_phase2 = isinstance(tool_registry, ToolRegistry)
 
     async def run_task(
@@ -47,18 +56,22 @@ class FridayOrchestrator:
 
         current_state = "OBSERVE"
 
+        # Local state storage for step transitions
+        before_snapshot = None
+        after_snapshot = None
+
         while current_state != "COMPLETE" and current_state != "FAILED":
             logger.info(f"[Orchestrator] TRANSITION -> State: {current_state}")
 
             if current_state == "OBSERVE":
                 # 1. Gather active OS context to inject or evaluate constraints
-                if observe_context_callback:
-                    try:
-                        context = observe_context_callback()
-                        state.metadata["observed_context"] = context
-                        logger.info(f"[Observe] Context captured: {context}")
-                    except Exception as e:
-                        logger.error(f"[Observe] Context capture failed: {e}")
+                try:
+                    snapshot = self.observer.get_snapshot(force_refresh=True)
+                    compressed = self.observer.compress_context(snapshot)
+                    state.metadata["observed_context"] = compressed
+                    logger.info(f"[Observe] Context captured and compressed: {compressed}")
+                except Exception as e:
+                    logger.error(f"[Observe] Context capture failed: {e}")
 
                 current_state = "PLAN"
 
@@ -92,11 +105,18 @@ class FridayOrchestrator:
                 logger.info(f"[Execute] Running step {step.step_id}: '{step.description}'")
                 step.status = StepStatus.RUNNING
 
+                # Capture BEFORE action snapshot (Observe Before Act!)
+                try:
+                    before_snapshot = self.observer.get_snapshot(force_refresh=True)
+                    state.metadata[f"step_{step.step_id}_before_snapshot"] = before_snapshot.model_dump()
+                except Exception as e:
+                    logger.error(f"[Execute] Pre-execution snapshot capture failed: {e}")
+
                 # Retrieve tool name
                 tool_name = step.tool_name
 
                 # ----------------------------------------------------
-                # PATH A: Phase 2 Typed ToolRegistry Control Loop
+                # PATH A: Phase 2/3 Typed ToolRegistry Control Loop
                 # ----------------------------------------------------
                 if self.strict_phase2:
                     tool = self.registry.get(tool_name)
@@ -126,7 +146,6 @@ class FridayOrchestrator:
                         # Request user validation approval
                         self._emit_event(event_callback, "ToolApprovalRequested", {"task_id": state.task_id, "step_id": step.step_id, "tool_name": tool_name, "risk_level": tool.contract.risk_level.value})
 
-                        # In strict testing/headless context, check task approval state
                         if state.approval_state == "rejected":
                             err_msg = f"User rejected approval for execution of {tool_name}."
                             logger.warning(f"[Execute] {err_msg}")
@@ -155,13 +174,11 @@ class FridayOrchestrator:
                     start_time = time.time()
                     self._emit_event(event_callback, "ToolCallStarted", {"task_id": state.task_id, "step_id": step.step_id, "tool_name": tool_name})
                     try:
-                        # Run the typed tool base execution
                         result: ToolResult = await asyncio.wait_for(
                             tool.run(**step.tool_args), timeout=tool.contract.timeout
                         )
                         duration = time.time() - start_time
 
-                        # Update TaskState from structured result observations
                         step.observation = result.observation
                         if result.status == ToolStatus.SUCCESS:
                             step.status = StepStatus.SUCCESS
@@ -226,22 +243,36 @@ class FridayOrchestrator:
 
                 logger.info(f"[Verify] Asserting execution outcome of step {step.step_id}...")
 
-                verification_success = True
-                verifier_name = step.verification_check
+                # Capture AFTER action snapshot (Observe After Act!)
+                try:
+                    after_snapshot = self.observer.get_snapshot(force_refresh=True)
+                    state.metadata[f"step_{step.step_id}_after_snapshot"] = after_snapshot.model_dump()
+                except Exception as e:
+                    logger.error(f"[Verify] Post-execution snapshot capture failed: {e}")
 
-                # Check if a custom verifier callback is registered
-                if verifier_name and verifier_name in self.verifiers:
-                    try:
-                        verifier = self.verifiers[verifier_name]
-                        logger.info(f"[Verify] Invoking custom state verifier '{verifier_name}'")
-                        verification_success = await verifier(step)
-                        logger.info(f"[Verify] Verifier outcome: {verification_success}")
-                    except Exception as e:
-                        logger.error(f"[Verify] Custom state verifier crashed: {e}")
-                        verification_success = False
+                verification_success = True
+
+                # Check if we are running in strict Phase 3 verification engine mode
+                if self.strict_phase2 and before_snapshot and after_snapshot:
+                    verification_res = self.verification_engine.verify_transition(
+                        step, before_snapshot, after_snapshot
+                    )
+                    state.metadata[f"step_{step.step_id}_verification_result"] = verification_res.model_dump()
+
+                    verification_success = verification_res.status == VerificationStatus.VERIFIED
+                    logger.info(f"[Verify] Transition status: {verification_res.status.value}. Reason: {verification_res.reason}")
                 else:
-                    # Default fallback: check if tool ran successfully
-                    verification_success = step.status != StepStatus.FAILED
+                    # Legacy fallback or custom verifier callbacks
+                    verifier_name = step.verification_check
+                    if verifier_name and verifier_name in self.verifiers:
+                        try:
+                            verifier = self.verifiers[verifier_name]
+                            verification_success = await verifier(step)
+                        except Exception as e:
+                            logger.error(f"[Verify] Custom verifier crashed: {e}")
+                            verification_success = False
+                    else:
+                        verification_success = step.status != StepStatus.FAILED
 
                 if verification_success:
                     step.status = StepStatus.SUCCESS
@@ -252,7 +283,7 @@ class FridayOrchestrator:
                     step.status = StepStatus.FAILED
                     logger.warning(f"[Verify] Step {step.step_id} verification failed.")
 
-                    # 5. Self-Healing check
+                    # 5. Self-Healing check (Safe recovery primitives)
                     current_state = await self._handle_self_healing(state, step)
 
             elif current_state == "REFLECT":
@@ -297,6 +328,7 @@ class FridayOrchestrator:
                 f"[Self-Healing] Retry attempt {current_retries + 1}/{state.max_retries_per_step} for step {step.step_id}."
             )
 
+            # Simple parameter heuristic modification for retry or delay
             await asyncio.sleep(0.1 * (current_retries + 1))  # Fast backoff delay for testing
 
             step.status = StepStatus.QUEUED  # Reset to allow re-execution
