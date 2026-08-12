@@ -101,15 +101,7 @@ async def send_email(
         cc_email: Optional CC email address
     """
     try:
-        # Gmail SMTP configuration
-        smtp_server = "smtp.gmail.com"
-        smtp_port = 587
-
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        # Get credentials from environment variables
+        # Get credentials from environment variables first
         gmail_user = os.getenv("GMAIL_USER")
         gmail_password = os.getenv(
             "GMAIL_APP_PASSWORD"
@@ -118,6 +110,15 @@ async def send_email(
         if not gmail_user or not gmail_password:
             logging.error("Gmail credentials not found in environment variables")
             return "Email sending failed: Gmail credentials not configured."
+
+        # Gmail SMTP configuration
+        smtp_server = "smtp.gmail.com"
+        smtp_port = 587
+
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
 
         # Create message
         msg = MIMEMultipart()
