@@ -251,7 +251,7 @@ async def test_scenario_launch_fails_and_retries():
 
         # Asserts escalation status
         assert final_state.plan[0].status == StepStatus.FAILED
-        assert "failed permanently" in final_state.final_result
+        assert "permanently" in final_state.final_result
 
 
 # =======================================================

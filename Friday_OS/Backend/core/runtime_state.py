@@ -32,5 +32,7 @@ class TaskState(BaseModel):
     cancellation_state: bool = False
     max_retries_per_step: int = 3
     retry_counts: Dict[int, int] = Field(default_factory=dict)  # step_id -> count
+    plan_revisions: List[str] = Field(default_factory=list)  # tracks historical plan updates
+    max_replans: int = 3
     final_result: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
