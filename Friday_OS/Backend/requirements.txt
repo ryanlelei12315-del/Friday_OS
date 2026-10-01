@@ -1,5 +1,5 @@
-livekit-agents
-livekit-plugins-openai
+livekit-agents~=1.8
+livekit-plugins-openai~=1.8
 livekit-plugins-silero
 livekit-plugins-google
 livekit-plugins-noise-cancellation
